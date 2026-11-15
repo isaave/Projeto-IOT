@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudTech | Data Center Guard</title>
+
+  <!-- Biblioteca MQTT via CDN (WebSocket) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+  <style>
+    /* ============================================================
+       CLOUDTECH | DATA CENTER GUARD
+       Identidade visual: Data Center / monitoramento industrial
+    ============================================================ */
+    :root {
+      --dc-bg: #05080f;
+      --dc-panel: #0b1220;
+      --dc-panel-2: #0e1729;
+      --dc-border: #17233a;
+      --dc-text: #e8eef7;
+      --dc-text-2: #7f93b3;
+      --dc-green: #22c55e;
+      --dc-red: #ef4444;
+      --dc-cyan: #22d3ee;
+      --dc-amber: #f59e0b;
+      --dc-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 460px at 88% -8%, rgba(34, 211, 238, 0.08), transparent 60%),
+        radial-gradient(760px 420px at -8% 108%, rgba(34, 197, 94, 0.06), transparent 60%),
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px 46px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px 46px),
+        var(--dc-bg);
+      color: var(--dc-text);
+      font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+      padding: 26px 18px 48px;
+    }
+
+    .wrap { width: 100%; max-width: 1120px; margin: 0 auto; }
+
+    /* ---------- Barra superior ---------- */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 14px 18px;
+      margin-bottom: 18px;
+      background: linear-gradient(180deg, rgba(18, 28, 46, 0.95), rgba(10, 17, 30, 0.95));
+      border: 1px solid var(--dc-border);
+      border-radius: 14px;
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+    }
+    .brand { display: flex; align-items: center; gap: 11px; }
+    .brand .logo-dot {
+      width: 11px; height: 11px; border-radius: 50%;
+      background: var(--dc-cyan);
+      box-shadow: 0 0 12px var(--dc-cyan);
+      flex: none;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-family: var(--dc-mono);
+      color: var(--dc-text);
+    }
+    .brand h1 .sep { color: var(--dc-cyan); margin: 0 6px; }
+    .brand h1 .rack { color: var(--dc-text-2); }
+
+    .conn-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--dc-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--dc-amber);
+      border: 1px solid var(--dc-border);
+      background: rgba(255, 255, 255, 0.03);
+      padding: 7px 13px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .conn-badge::before {
+      content: "";
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--dc-amber);
+      flex: none;
+    }
+    .conn-badge.online { color: var(--dc-green); }
+    .conn-badge.online::before { background: var(--dc-green); box-shadow: 0 0 8px var(--dc-green); animation: pulse-dot 1.8s infinite; }
+    .conn-badge.offline { color: var(--dc-red); }
+    .conn-badge.offline::before { background: var(--dc-red); }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    /* ---------- Grade principal ---------- */
+    .grid {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 18px;
+    }
+    .card {
+      background: linear-gradient(180deg, rgba(14, 23, 41, 0.96), rgba(9, 15, 27, 0.96));
+      border: 1px solid var(--dc-border);
+      border-radius: 14px;
+      padding: 20px 22px;
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+    }
+    .label {
+      display: block;
+      font-family: var(--dc-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--dc-text-2);
+    }
+
+    /* ---------- Cartão de temperatura ---------- */
+    .temp-value {
+      font-family: var(--dc-mono);
+      font-size: clamp(58px, 9vw, 104px);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      margin: 10px 0 4px;
+      color: var(--dc-green);
+      text-shadow: 0 0 22px rgba(34, 197, 94, 0.30);
+      transition: color 0.3s ease, text-shadow 0.3s ease, opacity 0.3s ease;
+    }
+    .temp-value.alerta {
+      color: var(--dc-red);
+      text-shadow: 0 0 26px rgba(239, 68, 68, 0.45);
+      animation: dc-pulse 1.2s infinite;
+    }
+    @keyframes dc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+    .temp-meta {
+      font-family: var(--dc-mono);
+      font-size: 13px;
+      color: var(--dc-text-2);
+      min-height: 20px;
+    }
+
+    /* ---------- Cartão do exaustor ---------- */
+    .exaustor-status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 14px 0 10px;
+      font-family: var(--dc-mono);
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+    .led {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--dc-red);
+      flex: none;
+      transition: background 0.25s ease, box-shadow 0.25s ease;
+    }
+    .led.ligado {
+      background: var(--dc-green);
+      box-shadow: 0 0 12px var(--dc-green);
+      animation: pulse-dot 1.5s infinite;
+    }
+
+    .protecao {
+      font-family: var(--dc-mono);
+      font-size: 12.5px;
+      font-weight: 700;
+      padding: 9px 12px;
+      border-radius: 9px;
+      border: 1px solid var(--dc-border);
+      background: rgba(34, 197, 94, 0.06);
+      color: var(--dc-green);
+      transition: all 0.25s ease;
+    }
+    .protecao.ativa {
+      border-color: rgba(239, 68, 68, 0.45);
+      background: rgba(239, 68, 68, 0.10);
+      color: #ff8b8b;
+      animation: dc-pulse 1.4s infinite;
+    }
+
+    .edge-limite {
+      margin-top: 10px;
+      font-family: var(--dc-mono);
+      font-size: 11.5px;
+      letter-spacing: 0.05em;
+      color: var(--dc-text-2);
+    }
+
+    .controles { display: flex; gap: 10px; margin-top: 18px; }
+    .btn {
+      flex: 1;
+      border: 0;
+      border-radius: 10px;
+      padding: 13px 14px;
+      font-family: var(--dc-mono);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: filter 0.2s, transform 0.08s, opacity 0.2s;
+    }
+    .btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.30; cursor: not-allowed; }
+    .btn-ligar { background: var(--dc-green); color: #04120a; box-shadow: 0 8px 20px rgba(34, 197, 94, 0.22); }
+    .btn-desligar { background: var(--dc-red); color: #1a0505; box-shadow: 0 8px 20px rgba(239, 68, 68, 0.20); }
+
+    /* ---------- Cartão do gráfico ---------- */
+    .chart-card { grid-column: 1 / -1; }
+    .chart-title {
+      margin: 6px 0 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--dc-text-2);
+      letter-spacing: 0.04em;
+    }
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 280px;
+    }
+    #grafico { width: 100%; height: 100%; display: block; }
+
+    @media (max-width: 820px) {
+      .grid { grid-template-columns: 1fr; }
+      .temp-value { font-size: clamp(52px, 16vw, 80px); }
+      .brand h1 { font-size: 12.5px; letter-spacing: 0.10em; }
+      .chart-wrap { height: 230px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- Barra superior -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo-dot"></span>
+        <h1>CLOUDTECH<span class="sep">|</span>DATA CENTER GUARD<span class="sep">|</span><span class="rack">RACK A01</span></h1>
+      </div>
+      <div id="connStatus" class="conn-badge">Conectando (Adafruit IO)</div>
+    </header>
+
+    <main class="grid">
+
+      <!-- Temperatura -->
+      <section class="card">
+        <span class="label">Server Rack Temperature (°C)</span>
+        <div id="visorTemperatura" class="temp-value">--.-</div>
+        <div id="tempStatus" class="temp-meta">Aguardando leitura...</div>
+      </section>
+
+      <!-- Exaustor / controle manual -->
+      <section class="card">
+        <span class="label">Controle Manual do Exaustor</span>
+        <div class="exaustor-status">
+          <span id="ledExaustor" class="led"></span>
+          <strong id="statusExaustor">EXAUSTOR: --</strong>
+        </div>
+        <div id="protecao" class="protecao">Operação Normal (&lt; 28 °C)</div>
+        <div class="edge-limite">Limite de Segurança Edge: 28.0 °C</div>
+        <div class="controles">
+          <button id="btnLigar" class="btn btn-ligar" onclick="enviarComandoLed('1')">LIGAR (1)</button>
+          <button id="btnDesligar" class="btn btn-desligar" onclick="enviarComandoLed('0')">DESLIGAR (0)</button>
+        </div>
+      </section>
+
+      <!-- Gráfico em tempo real -->
+      <section class="card chart-card">
+        <span class="label">Histórico de Temperatura em Tempo Real</span>
+        <div class="chart-title">Temperatura do Rack (°C)</div>
+        <div class="chart-wrap">
+          <canvas id="grafico"></canvas>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    // ============================================================
+    // 1) Credenciais da conta Adafruit IO do grupo
+    //    (Troque pela chave real apenas na sua cópia local.
+    //     Antes de publicar no Wokwi/AVA use 'SUA_CHAVE_AQUI'.)
+    // ============================================================
+    const username = 'isabellaave32';
+    const adafruitKey = 'SUA_CHAVE_AQUI';
+
+    // ============================================================
+    // 2) Conexão com o Broker da Adafruit IO via WebSocket (443)
+    // ============================================================
+    const client = mqtt.connect('wss://io.adafruit.com:443', {
+      username: username,
+      password: adafruitKey
+    });
+
+    // Elementos da tela
+    const visorTemperatura = document.getElementById('visorTemperatura');
+    const statusExaustor   = document.getElementById('statusExaustor');
+    const ledExaustor      = document.getElementById('ledExaustor');
+    const tempStatus       = document.getElementById('tempStatus');
+    const protecao         = document.getElementById('protecao');
+    const btnLigar         = document.getElementById('btnLigar');
+    const btnDesligar      = document.getElementById('btnDesligar');
+    const connStatus       = document.getElementById('connStatus');
+
+    // ============================================================
+    // 3) Conexão / reconexão
+    // ============================================================
+    client.on('connect', () => {
+      console.log('Conectado ao Broker Adafruit IO via WebSocket!');
+
+      connStatus.textContent = 'Online (Adafruit IO)';
+      connStatus.classList.remove('offline');
+      connStatus.classList.add('online');
+
+      // Escuta os 2 feeds em tempo real
+      client.subscribe(`${username}/feeds/temperatura`);
+      client.subscribe(`${username}/feeds/led`);
+
+      // Consulta /get: carrega o último valor salvo ao abrir a página
+      client.publish(`${username}/feeds/temperatura/get`, '');
+      client.publish(`${username}/feeds/led/get`, '');
+    });
+
+    client.on('close', () => {
+      console.log('Conexão MQTT fechada. Tentando reconectar...');
+      connStatus.textContent = 'Offline';
+      connStatus.classList.remove('online');
+      connStatus.classList.add('offline');
+    });
+
+    client.on('error', (err) => console.error('Erro MQTT:', err));
+
+    // ============================================================
+    // 4) Recebimento de mensagens dos feeds
+    // ============================================================
+    client.on('message', (topic, message) => {
+      const valor = message.toString().trim();
+
+      if (topic.endsWith('/temperatura')) {
+        const temp = parseFloat(valor);
+        if (isNaN(temp)) return;
+
+        visorTemperatura.innerText = temp.toFixed(1) + ' °C';
+        visorTemperatura.classList.remove('alerta');
+
+        if (temp >= 28.0) {
+          visorTemperatura.classList.add('alerta');
+          tempStatus.innerText = 'EMERGÊNCIA: temperatura acima de 28 °C';
+          protecao.innerText = '⚠ Proteção Térmica Ativa (≥ 28 °C)';
+          protecao.classList.add('ativa');
+        } else {
+          tempStatus.innerText = 'Temperatura dentro da operação.';
+          protecao.innerText = 'Operação Normal (< 28 °C)';
+          protecao.classList.remove('ativa');
+        }
+
+        adicionarPonto(temp);
+      }
+
+      if (topic.endsWith('/led')) {
+        const ligado = valor === '1' || valor.toLowerCase() === 'on';
+
+        statusExaustor.innerText = 'EXAUSTOR: ' + (ligado ? 'LIGADO (1)' : 'DESLIGADO (0)');
+        ledExaustor.classList.toggle('ligado', ligado);
+
+        // Sincroniza os botões (o que já está ativo fica desabilitado)
+        btnLigar.disabled = ligado;
+        btnDesligar.disabled = !ligado;
+      }
+    });
+
+    // ============================================================
+    // 5) Envio de comando manual (botões)
+    // ============================================================
+    function enviarComandoLed(comando) {
+      client.publish(`${username}/feeds/led`, comando);
+    }
+
+    // ============================================================
+    // 6) Gráfico de linha em tempo real (Canvas puro)
+    // ============================================================
+    const canvas = document.getElementById('grafico');
+    const ctx = canvas.getContext('2d');
+    const historico = [];
+    const MAX_PONTOS = 30;
+
+    function adicionarPonto(temp) {
+      historico.push({ t: new Date(), temp });
+      if (historico.length > MAX_PONTOS) historico.shift();
+      desenharGrafico();
+    }
+
+    function ajustarCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width  = Math.max(1, Math.floor(rect.width  * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      desenharGrafico();
+    }
+
+    function desenharGrafico() {
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      const padL = 42, padR = 14, padT = 12, padB = 34;
+      const plotW = Math.max(1, w - padL - padR);
+      const plotH = Math.max(1, h - padT - padB);
+
+      const minY = 15;
+      const maxY = 45;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grade horizontal + rótulos do eixo Y
+      ctx.font = '11px ui-monospace, Consolas, monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      for (let v = minY; v <= maxY; v += 5) {
+        const y = padT + plotH - ((v - minY) / (maxY - minY)) * plotH;
+        ctx.strokeStyle = 'rgba(120, 160, 210, 0.14)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(padL + plotW, y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#6f8ab0';
+        ctx.fillText(String(v), padL - 8, y);
+      }
+
+      if (historico.length === 0) return;
+
+      const n = Math.max(historico.length - 1, 1);
+      const xAt = (i) => padL + (i / n) * plotW;
+      const yAt = (t) => {
+        const clamped = Math.min(Math.max(t, minY), maxY);
+        return padT + plotH - ((clamped - minY) / (maxY - minY)) * plotH;
+      };
+
+      // Área sob a linha (gradiente)
+      const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+      grad.addColorStop(0, 'rgba(34, 211, 238, 0.30)');
+      grad.addColorStop(1, 'rgba(34, 211, 238, 0.02)');
+
+      ctx.beginPath();
+      historico.forEach((p, i) => {
+        const x = xAt(i), y = yAt(p.temp);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(xAt(historico.length - 1), padT + plotH);
+      ctx.lineTo(xAt(0), padT + plotH);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Linha principal
+      ctx.beginPath();
+      historico.forEach((p, i) => {
+        const x = xAt(i), y = yAt(p.temp);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = 'rgba(34, 211, 238, 0.75)';
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Pontos
+      historico.forEach((p, i) => {
+        const x = xAt(i), y = yAt(p.temp);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = p.temp >= 28.0 ? '#ef4444' : '#22d3ee';
+        ctx.fill();
+      });
+
+      // Rótulos do eixo X (horários)
+      ctx.fillStyle = '#6f8ab0';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const passo = Math.max(1, Math.ceil(historico.length / 6));
+      historico.forEach((p, i) => {
+        if (i % passo !== 0 && i !== historico.length - 1) return;
+        const hora = p.t.toLocaleTimeString('pt-BR', {
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+        ctx.fillText(hora, xAt(i), padT + plotH + 9);
+      });
+    }
+
+    window.addEventListener('resize', ajustarCanvas);
+    window.addEventListener('load', ajustarCanvas);
+    ajustarCanvas();
+  </script>
+</body>
+</html>
