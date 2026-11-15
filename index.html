@@ -9,8 +9,14 @@
   <meta http-equiv="Expires" content="0">
   <title>CloudTech | Data Center Guard (v3)</title>
 
-  <!-- Biblioteca MQTT via CDN (WebSocket) - jsDelivr com fallback para unpkg -->
-  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.1/dist/mqtt.min.js"></script>
+  <!-- Biblioteca MQTT: arquivo local (carrega instantaneamente) -->
+  <script src="mqtt.min.js"></script>
+  <!-- Fallbacks: se o arquivo local nao existir, tenta os CDNs -->
+  <script>
+    if (typeof mqtt === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.1/dist/mqtt.min.js"><\/script>');
+    }
+  </script>
   <script>
     if (typeof mqtt === 'undefined') {
       document.write('<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"><\/script>');
@@ -283,7 +289,7 @@
         <span class="logo-dot"></span>
         <h1>CLOUDTECH<span class="sep">|</span>DATA CENTER GUARD<span class="sep">|</span><span class="rack">RACK A01</span></h1>
       </div>
-      <div id="connStatus" class="conn-badge">Conectando (Adafruit IO)</div>
+      <div id="connStatus" class="conn-badge">Conectando… (build v3)</div>
     </header>
 
     <main class="grid">
