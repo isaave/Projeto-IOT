@@ -46,5 +46,6 @@ Por segurança, a chave do Adafruit IO **não** está no repositório. Substitua
 ├── sketch.ino       # firmware ESP32 (Wokwi)
 ├── diagram.json     # circuito do Wokwi
 ├── libraries.txt    # bibliotecas do Wokwi
-└── index.html       # painel web (WebSocket + gráfico)
+├── index.html       # painel web (WebSocket + gráfico)
+└── mqtt.min.js      # biblioteca MQTT local (fallback automático para CDN)
 ```
