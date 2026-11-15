@@ -3,10 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CloudTech | Data Center Guard</title>
+  <!-- Evita que o navegador sirva uma versao antiga em cache -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>CloudTech | Data Center Guard (v3)</title>
 
-  <!-- Biblioteca MQTT via CDN (WebSocket) -->
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <!-- Biblioteca MQTT via CDN (WebSocket) - jsDelivr com fallback para unpkg -->
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.1/dist/mqtt.min.js"></script>
+  <script>
+    if (typeof mqtt === 'undefined') {
+      document.write('<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"><\/script>');
+    }
+  </script>
 
   <style>
     /* ============================================================
@@ -238,6 +247,25 @@
     }
     #grafico { width: 100%; height: 100%; display: block; }
 
+    /* ---------- Barra de diagnostico ---------- */
+    .diag {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 20px;
+      margin-top: 16px;
+      padding: 10px 16px;
+      border: 1px dashed var(--dc-border);
+      border-radius: 10px;
+      font-family: var(--dc-mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--dc-text-2);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .diag b { color: var(--dc-text-2); font-weight: 700; margin-right: 5px; }
+    .diag .ok { color: var(--dc-green); font-weight: 700; }
+    .diag .bad { color: var(--dc-red); font-weight: 700; }
+
     @media (max-width: 820px) {
       .grid { grid-template-columns: 1fr; }
       .temp-value { font-size: clamp(52px, 16vw, 80px); }
@@ -292,6 +320,15 @@
       </section>
 
     </main>
+
+    <!-- Barra de diagnóstico: mostra qual build carregou e se a chave e valida -->
+    <footer id="diag" class="diag">
+      <span><b>BUILD</b> v3</span>
+      <span><b>USUÁRIO</b> <span id="diagUser">--</span></span>
+      <span><b>CHAVE</b> <span id="diagKey">--</span></span>
+      <span><b>REST API</b> <span id="diagRest">testando...</span></span>
+      <span><b>MQTT</b> <span id="diagMqtt">desconectado</span></span>
+    </footer>
   </div>
 
   <script>
@@ -304,11 +341,51 @@
     const adafruitKey = 'SUA_CHAVE_AQUI';
 
     // ============================================================
+    // Diagnóstico na tela (prova qual versão da página carregou)
+    // ============================================================
+    const diagUser = document.getElementById('diagUser');
+    const diagKey  = document.getElementById('diagKey');
+    const diagRest = document.getElementById('diagRest');
+    const diagMqtt = document.getElementById('diagMqtt');
+
+    diagUser.textContent = username;
+    diagKey.textContent = adafruitKey.slice(0, 6) + '…' + adafruitKey.slice(-4) + ' (' + adafruitKey.length + ' chars)';
+
+    // Testa a chave pela API REST: 200 = chave valida (independe do MQTT)
+    fetch('https://io.adafruit.com/api/v2/' + username + '/feeds', {
+      headers: { 'X-AIO-Key': adafruitKey }
+    })
+      .then((r) => {
+        diagRest.textContent = 'HTTP ' + r.status;
+        diagRest.className = r.ok ? 'ok' : 'bad';
+      })
+      .catch(() => {
+        diagRest.textContent = 'falhou';
+        diagRest.className = 'bad';
+      });
+
+    // ============================================================
     // 2) Conexão com o Broker da Adafruit IO via WebSocket (443)
     // ============================================================
+    // Se a biblioteca mqtt.min.js não carregar (CDN bloqueado), avisa na tela
+    if (typeof mqtt === 'undefined') {
+      const badge = document.getElementById('connStatus');
+      badge.textContent = 'Erro: biblioteca MQTT não carregou (CDN)';
+      badge.classList.add('offline');
+      diagMqtt.textContent = 'biblioteca não carregou';
+      diagMqtt.className = 'bad';
+      throw new Error('mqtt.min.js nao carregou');
+    }
+
     const client = mqtt.connect('wss://io.adafruit.com:443', {
       username: username,
-      password: adafruitKey
+      password: adafruitKey,
+      // Adafruit IO usa MQTT 3.1.1; se o mqtt.js tentar MQTT 5 o broker recusa
+      protocolVersion: 4,
+      clientId: 'cloudtech-web-' + Math.random().toString(16).slice(2, 10),
+      keepalive: 30,
+      reconnectPeriod: 3000,
+      connectTimeout: 10000
     });
 
     // Elementos da tela
@@ -331,6 +408,9 @@
       connStatus.classList.remove('offline');
       connStatus.classList.add('online');
 
+      diagMqtt.textContent = 'conectado';
+      diagMqtt.className = 'ok';
+
       // Escuta os 2 feeds em tempo real
       client.subscribe(`${username}/feeds/temperatura`);
       client.subscribe(`${username}/feeds/led`);
@@ -342,12 +422,22 @@
 
     client.on('close', () => {
       console.log('Conexão MQTT fechada. Tentando reconectar...');
-      connStatus.textContent = 'Offline';
+      connStatus.textContent = 'Offline — tentando reconectar...';
       connStatus.classList.remove('online');
       connStatus.classList.add('offline');
+      diagMqtt.textContent = 'conexão fechada';
+      diagMqtt.className = 'bad';
     });
 
-    client.on('error', (err) => console.error('Erro MQTT:', err));
+    client.on('error', (err) => {
+      console.error('Erro MQTT:', err);
+      const motivo = (err && err.message) ? err.message : 'falha na conexão';
+      connStatus.textContent = 'Erro: ' + motivo;
+      connStatus.classList.remove('online');
+      connStatus.classList.add('offline');
+      diagMqtt.textContent = motivo;
+      diagMqtt.className = 'bad';
+    });
 
     // ============================================================
     // 4) Recebimento de mensagens dos feeds
